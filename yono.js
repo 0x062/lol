@@ -6,6 +6,7 @@ const axios = require('axios');
 
 // === Configuration from .env ===
 const RPC_ENDPOINT      = process.env.RPC_ENDPOINT;
+const REST_ENDPOINT     = process.env.REST_ENDPOINT || RPC_ENDPOINT.replace(/rpc/, 'api');
 const MNEMONIC          = process.env.MNEMONIC;
 const ADDRESS_PREFIX    = process.env.ADDRESS_PREFIX || 'xion';
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
@@ -28,6 +29,7 @@ if (!RPC_ENDPOINT || !MNEMONIC || !RECIPIENT_BABYLON || !AMOUNT) {
 
 // Debug env values
 console.log('> RPC_ENDPOINT    :', RPC_ENDPOINT);
+console.log('> REST_ENDPOINT   :', REST_ENDPOINT);
 console.log('> ADDRESS_PREFIX  :', ADDRESS_PREFIX);
 console.log('> RECIPIENT       :', RECIPIENT_BABYLON);
 console.log('> PORT_ID         :', PORT_ID);
@@ -75,11 +77,11 @@ async function main() {
   const client = await SigningStargateClient.connectWithSigner(RPC_ENDPOINT, wallet);
   console.log('✅ Connected to chain.');
 
-  // Dynamically fetch IBC channel for PORT_ID using correct REST path
+  // Dynamically fetch IBC channel for PORT_ID via REST
   console.log('🔎 Fetching IBC channels for port', PORT_ID);
   let channelId;
   try {
-    const url = `${RPC_ENDPOINT.replace(/\/$/, '')}/cosmos/ibc/core/channel/v1/channels`;
+    const url = `${REST_ENDPOINT.replace(/\/$/, '')}/cosmos/ibc/core/channel/v1/channels`;
     const res = await axios.get(url);
     const channels = res.data.channels || [];
     const portChannels = channels.filter(ch => ch.port_id === PORT_ID);
@@ -90,7 +92,7 @@ async function main() {
     channelId = portChannels[0].channel_id;
     console.log('> Using IBC channel:', channelId);
   } catch (err) {
-    console.error('❌ Failed to fetch IBC channels:', err.message);
+    console.error('❌ Failed to fetch IBC channels from REST endpoint:', err.message);
     process.exit(1);
   }
 
