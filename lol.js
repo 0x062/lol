@@ -7,7 +7,7 @@ const { toBech32 } = require('@cosmjs/encoding');
 const { DirectSecp256k1HdWallet } = require('@cosmjs/proto-signing');
 const { SigningStargateClient } = require('@cosmjs/stargate');
 
-const RPC_ENDPOINT = "https://rpc.xion-testnet-1.burnt.com";
+const RPC_ENDPOINT = "https://xion-rpc.f5nodes.com";
 const PREFIX = "xion";
 const AMOUNT_TO_SEND = "1000"; // 0.001 XION = 1000 uxion
 
