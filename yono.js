@@ -61,8 +61,17 @@ async function pollPacketHash(txHash) {
 }
 
 async function main() {
-  // ... (Validasi mnemonic dan inisialisasi wallet tetap sama) ...
+  // === TAMBAHKAN KEMBALI BAGIAN INI ===
+  // Validate mnemonic
+  const mnemonic = MNEMONIC.trim(); // <--- Ambil dari env
+  if (!bip39.validateMnemonic(mnemonic)) { // <-- Validasi
+    console.error('❌ Invalid mnemonic format (BIP39 12/24 words).');
+    process.exit(1);
+  }
+  // ===================================
+
   console.log('🔑 Initializing wallet with prefix:', ADDRESS_PREFIX);
+  // Sekarang 'mnemonic' sudah didefinisikan sebelum digunakan di sini:
   const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: ADDRESS_PREFIX });
   const [account] = await wallet.getAccounts();
   console.log('📬 Sender address:', account.address);
@@ -71,23 +80,23 @@ async function main() {
   const client = await SigningStargateClient.connectWithSigner(RPC_ENDPOINT, wallet);
   console.log('✅ Connected to chain.');
 
-  const channelId = ENV_CHANNEL_ID; // Kita asumsikan 'channel-2' sudah benar
+  const channelId = ENV_CHANNEL_ID;
   console.log('ℹ️ Using CHANNEL_ID from env:', channelId);
 
   console.log('💰 Fetching balances...');
   const balances = await client.getAllBalances(account.address);
   console.log('Balances:', balances);
-  // ... (Validasi saldo tetap sama) ...
+  if (!balances.find(c => c.denom === DENOM)) {
+      console.error(`❌ Denom ${DENOM} not found in balances.`);
+      process.exit(1);
+  }
 
-  // === PERUBAHAN UTAMA DI SINI ===
   const latestHeight = await client.getHeight();
   const timeoutHeight = { revisionNumber: 0, revisionHeight: latestHeight + 1000 };
 
-  // Hitung timestamp dalam nanodetik menggunakan BigInt dan konversi ke string
   const nowNs = BigInt(Date.now()) * 1_000_000n;
   const timeoutSecondsNs = BigInt(TIMEOUT_SECONDS) * 1_000_000_000n;
-  const timeoutTimestamp = (nowNs + timeoutSecondsNs).toString(); // <--- JADIKAN STRING!
-  // ===============================
+  const timeoutTimestamp = (nowNs + timeoutSecondsNs).toString();
 
   const amount = [{ denom: DENOM, amount: AMOUNT }];
   const fee = { amount: [{ denom: FEE_DENOM, amount: FEE_AMOUNT }], gas: GAS_LIMIT };
@@ -95,7 +104,7 @@ async function main() {
   console.log('>> DEBUG amount         :', amount);
   console.log('>> DEBUG fee            :', fee);
   console.log('>> DEBUG timeoutHeight  :', timeoutHeight);
-  console.log('>> DEBUG timeoutTimestamp:', timeoutTimestamp); // <-- Ini sekarang string
+  console.log('>> DEBUG timeoutTimestamp:', timeoutTimestamp);
 
   console.log(`🚀 Sending ${AMOUNT} (${DENOM}) to ${RECIPIENT_BABYLON} via IBC (${PORT_ID}/${channelId})...`);
   let result;
@@ -106,30 +115,27 @@ async function main() {
       amount,
       PORT_ID,
       channelId,
-      timeoutHeight,    // <-- Kirim height
-      timeoutTimestamp, // <-- Kirim timestamp sebagai STRING
+      timeoutHeight,
+      timeoutTimestamp,
       fee
     );
   } catch (err) {
     console.error('❌ IBC send failed:', err.message);
-    // Tampilkan detail error jika ada
-    if (err.response) console.error("Error details:", err.response.data);
     process.exit(1);
   }
 
-  // ... (Pengecekan hasil dan polling tetap sama) ...
   console.log('📨 Tx Hash:', result.transactionHash);
   if (result.code !== 0) {
-      console.error('❌ Transfer error:', result.rawLog);
-      process.exit(1);
+    console.error('❌ Transfer error:', result.rawLog);
+    process.exit(1);
   }
 
   try {
-      const packetHash = await pollPacketHash(result.transactionHash);
-      console.log('🧵 Packet Hash:', packetHash);
-      console.log(`🔗 View on Union: https://app.union.build/explorer/transfers/${packetHash}`);
+    const packetHash = await pollPacketHash(result.transactionHash);
+    console.log('🧵 Packet Hash:', packetHash);
+    console.log(`🔗 View on Union: https://app.union.build/explorer/transfers/${packetHash}`);
   } catch (err) {
-      console.error('❌ Union poll failed:', err.message);
+    console.error('❌ Union poll failed:', err.message);
   }
 
   console.log('✅ Done.');
