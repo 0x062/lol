@@ -11,7 +11,8 @@ const ADDRESS_PREFIX    = process.env.ADDRESS_PREFIX || 'xion';
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
 const PORT_ID           = process.env.PORT_ID || 'transfer';
 const CHANNEL_ID        = process.env.CHANNEL_ID || 'channel-7';
-const DENOM             = process.env.DENOM;
+// Default denom is native XION for cross-chain via Union
+const DENOM             = process.env.DENOM || 'uxion';
 const AMOUNT            = process.env.AMOUNT;
 const FEE_DENOM         = process.env.FEE_DENOM || 'uxion';
 const FEE_AMOUNT        = process.env.FEE_AMOUNT || '2000';
@@ -22,8 +23,8 @@ const POLL_MAX_RETRIES  = 50;
 const POLL_INTERVAL_MS  = 5000;
 
 // Basic env validation
-if (!RPC_ENDPOINT || !MNEMONIC || !RECIPIENT_BABYLON || !DENOM || !AMOUNT) {
-  console.error('❌ Missing env vars. Ensure .env includes RPC_ENDPOINT, MNEMONIC, RECIPIENT_BABYLON, DENOM, AMOUNT');
+if (!RPC_ENDPOINT || !MNEMONIC || !RECIPIENT_BABYLON || !AMOUNT) {
+  console.error('❌ Missing env vars. Ensure .env includes RPC_ENDPOINT, MNEMONIC, RECIPIENT_BABYLON, AMOUNT');
   process.exit(1);
 }
 
@@ -86,6 +87,7 @@ async function main() {
   const timeoutHeight = { revisionNumber: 0, revisionHeight: latestHeight + 1000 };
   const timeoutTimestamp = Math.floor(Date.now() / 1000) + TIMEOUT_SECONDS;
 
+  // Use native denom for amount
   const amount = [{ denom: DENOM, amount: AMOUNT }];
   const fee = { amount: [{ denom: FEE_DENOM, amount: FEE_AMOUNT }], gas: GAS_LIMIT };
 
@@ -133,4 +135,3 @@ main().catch(err => {
   console.error('Fatal error:', err.message);
   process.exit(1);
 });
- 
