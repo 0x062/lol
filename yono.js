@@ -7,7 +7,7 @@ const axios = require('axios');
 const XION_RPC_ENDPOINT = process.env.XION_RPC_ENDPOINT;
 const MNEMONIC = process.env.MNEMONIC;
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
-const AMOUNT_UXION = process.env.AMOUNT_UXION || '1000';
+const AMOUNT_XION = process.env.AMOUNT_XION || '1000';
 const PORT_ID = process.env.PORT_ID || 'transfer';
 const CHANNEL_ID = process.env.CHANNEL_ID || 'channel-7';
 const TIMEOUT_SECONDS = parseInt(process.env.TIMEOUT_SECONDS || '300', 10);
@@ -84,6 +84,15 @@ async function main() {
   const client = await SigningStargateClient.connectWithSigner(XION_RPC_ENDPOINT, wallet);
   console.log('Connected.');
 
+  // Fetch and display balances to validate denom
+  const balances = await client.getAllBalances(account.address);
+  console.log('Account balances:', balances);
+  const coin = balances.find(c => c.denom === 'xion');
+  if (!coin) {
+    console.error('Denom xion not found on Xion chain. Please verify chain denom from above balances.');
+    process.exit(1);
+  }
+
   // Determine timeout heights
   const latestHeight = await client.getHeight();
   const timeoutHeight = {
@@ -93,10 +102,10 @@ async function main() {
   const timeoutTimestamp = Math.floor(Date.now() / 1000) + TIMEOUT_SECONDS;
 
   // Build amount and fee
-  const amount = [{ denom: 'uxion', amount: AMOUNT_UXION }];
-  const fee = { amount: [{ denom: 'uxion', amount: '200' }], gas: '200000' };
+  const amount = [{ denom: 'xion', amount: AMOUNT_XION }];
+  const fee = { amount: [{ denom: 'xion', amount: '200' }], gas: '200000' };
 
-  console.log(`Sending ${AMOUNT_UXION} uxion to ${RECIPIENT_BABYLON} via IBC...`);
+  console.log(`Sending ${AMOUNT_XION} xion to ${RECIPIENT_BABYLON} via IBC...`);
   let result;
   try {
     result = await sendWithRetry(() =>
