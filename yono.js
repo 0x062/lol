@@ -12,7 +12,7 @@ const PORT_ID           = process.env.PORT_ID || 'transfer';
 const CHANNEL_ID        = process.env.CHANNEL_ID || 'channel-7';
 const DENOM             = process.env.DENOM;
 const AMOUNT            = process.env.AMOUNT;
-const FEE_DENOM         = process.env.FEE_DENOM || DENOM;
+const FEE_DENOM         = process.env.FEE_DENOM || 'uxion';
 const FEE_AMOUNT        = process.env.FEE_AMOUNT || '2000';
 const GAS_LIMIT         = process.env.GAS_LIMIT || '200000';
 const TIMEOUT_SECONDS   = parseInt(process.env.TIMEOUT_SECONDS || '300', 10);
@@ -23,17 +23,25 @@ const POLL_INTERVAL_MS  = 5000;
 async function pollPacketHash(txHash) {
   const query = `query($submission_tx_hash:String!){v2_transfers(args:{p_transaction_hash:$submission_tx_hash}){packet_hash}}`;
   const variables = { submission_tx_hash: txHash };
+
   for (let i = 1; i <= POLL_MAX_RETRIES; i++) {
     console.log(`Polling Union ${i}/${POLL_MAX_RETRIES}...`);
     try {
-      const res = await axios.post(GRAPHQL_ENDPOINT, { query, variables }, { headers: { 'Content-Type': 'application/json' } });
+      const res = await axios.post(
+        GRAPHQL_ENDPOINT,
+        { query, variables },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+
       const ph = res.data?.data?.v2_transfers?.[0]?.packet_hash;
       if (ph) return ph;
     } catch (err) {
       console.warn('Poll error:', err.message);
     }
+
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
   }
+
   throw new Error('Packet_hash poll timeout');
 }
 
@@ -52,7 +60,7 @@ async function main() {
   }
 
   // Static prefix
-  const prefix = 'xion';
+  const prefix = process.env.PREFIX || 'xion';
   console.log('🔑 Using prefix:', prefix);
 
   // Initialize wallet
@@ -70,6 +78,7 @@ async function main() {
   console.log('💰 Fetching balances...');
   const balances = await client.getAllBalances(account.address);
   console.log('Balances:', balances);
+
   if (!balances.find(c => c.denom === DENOM)) {
     console.error(`Denom ${DENOM} not in balances. Check chain and channel configuration.`);
     process.exit(1);
@@ -84,9 +93,16 @@ async function main() {
   const amount = [{ denom: DENOM, amount: AMOUNT }];
   const fee = { amount: [{ denom: FEE_DENOM, amount: FEE_AMOUNT }], gas: GAS_LIMIT };
 
+  // Debug logs
+  console.log('>> DEBUG amount:', amount);
+  console.log('>> DEBUG fee:', fee);
+  console.log('>> DEBUG timeoutHeight:', timeoutHeight);
+  console.log('>> DEBUG timeoutTimestamp:', timeoutTimestamp);
+
   // Send IBC tokens
   console.log(`🚀 Sending ${AMOUNT} (${DENOM}) to ${RECIPIENT_BABYLON} via IBC (${PORT_ID}/${CHANNEL_ID})...`);
   let result;
+
   try {
     result = await client.sendIbcTokens(
       account.address,
@@ -109,7 +125,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Poll Union
+  // Poll Union for packet_hash
   try {
     const packetHash = await pollPacketHash(result.transactionHash);
     console.log('🧵 Packet Hash:', packetHash);
@@ -117,6 +133,7 @@ async function main() {
   } catch (err) {
     console.error('❌ Union poll failed:', err.message);
   }
+
   console.log('✅ Done.');
 }
 
