@@ -129,15 +129,16 @@ async function main() {
   let result;
   try {
     result = await client.sendIbcTokens(
-      account.address,
-      RECIPIENT_BABYLON,
-      amount,
-      PORT_ID,
-      channelId,
-      timeoutHeight,
-      timeoutTimestamp,
-      fee
-    );
+    account.address,
+    RECIPIENT_BABYLON,
+    amount,
+    PORT_ID,
+    channelId,
+    undefined, // <--- Set ke undefined
+    undefined, // <--- Set ke undefined
+    fee,
+    "Testing IBC Transfer" // <-- Tambahkan memo (opsional tapi bagus untuk debugging)
+  );
   } catch (err) {
     console.error('❌ IBC send failed:', err.message);
     process.exit(1);
