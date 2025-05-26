@@ -7,7 +7,7 @@ const axios = require('axios');
 // === Configuration from .env (ensure .env has RPC_ENDPOINT and MNEMONIC) ===
 const RPC_ENDPOINT      = process.env.RPC_ENDPOINT;
 const MNEMONIC          = process.env.MNEMONIC;
-const PREFIX            = process.env.PREFIX || 'xion';
+const ADDRESS_PREFIX    = process.env.ADDRESS_PREFIX || 'xion';
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
 const PORT_ID           = process.env.PORT_ID || 'transfer';
 const CHANNEL_ID        = process.env.CHANNEL_ID || 'channel-7';
@@ -29,7 +29,7 @@ if (!RPC_ENDPOINT || !MNEMONIC || !RECIPIENT_BABYLON || !DENOM || !AMOUNT) {
 
 // Debug env values
 console.log('> RPC_ENDPOINT    :', RPC_ENDPOINT);
-console.log('> PREFIX          :', PREFIX);
+console.log('> ADDRESS_PREFIX  :', ADDRESS_PREFIX);
 console.log('> RECIPIENT       :', RECIPIENT_BABYLON);
 console.log('> DENOM           :', DENOM);
 console.log('> AMOUNT          :', AMOUNT);
@@ -64,8 +64,8 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('🔑 Initializing wallet with prefix:', PREFIX);
-  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: PREFIX });
+  console.log('🔑 Initializing wallet with prefix:', ADDRESS_PREFIX);
+  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: ADDRESS_PREFIX });
   const [account] = await wallet.getAccounts();
   console.log('📬 Sender address:', account.address);
 
@@ -133,3 +133,4 @@ main().catch(err => {
   console.error('Fatal error:', err.message);
   process.exit(1);
 });
+ 
