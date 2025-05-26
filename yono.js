@@ -113,8 +113,7 @@ async function main() {
   // Build timeout
   const latestHeight = await client.getHeight();
   const timeoutHeight = { revisionNumber: 0, revisionHeight: latestHeight + 1000 };
-  const timeoutTimestamp = Math.floor(Date.now() / 1000) + TIMEOUT_SECONDS;
-
+  const timeoutTimestamp = (Math.floor(Date.now() / 1000) + TIMEOUT_SECONDS) * 1_000_000_000;
   // Prepare amount and fee
   const amount = [{ denom: DENOM, amount: AMOUNT }];
   const fee = { amount: [{ denom: FEE_DENOM, amount: FEE_AMOUNT }], gas: GAS_LIMIT };
