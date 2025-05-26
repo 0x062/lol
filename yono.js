@@ -9,7 +9,7 @@ const MNEMONIC = process.env.MNEMONIC;
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
 const AMOUNT_UXION = process.env.AMOUNT_UXION || '1000';
 const PORT_ID = process.env.PORT_ID || 'transfer';
-const CHANNEL_ID = process.env.CHANNEL_ID || '7';
+const CHANNEL_ID = process.env.CHANNEL_ID || 'channel-7';
 const TIMEOUT_SECONDS = parseInt(process.env.TIMEOUT_SECONDS || '300', 10);
 
 // Union GraphQL polling config
