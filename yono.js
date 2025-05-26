@@ -75,15 +75,16 @@ async function main() {
   const client = await SigningStargateClient.connectWithSigner(RPC_ENDPOINT, wallet);
   console.log('✅ Connected to chain.');
 
-  // Dynamically fetch IBC channel for PORT_ID
+  // Dynamically fetch IBC channel for PORT_ID using correct REST path
   console.log('🔎 Fetching IBC channels for port', PORT_ID);
   let channelId;
   try {
-    const res = await axios.get(`${RPC_ENDPOINT}/ibc/core/channel/v1/channels`);
+    const url = `${RPC_ENDPOINT.replace(/\/$/, '')}/cosmos/ibc/core/channel/v1/channels`;
+    const res = await axios.get(url);
     const channels = res.data.channels || [];
     const portChannels = channels.filter(ch => ch.port_id === PORT_ID);
     if (!portChannels.length) {
-      console.error(`❌ No IBC channels found for port '${PORT_ID}'`);
+      console.error(`❌ No IBC channels found for port '${PORT_ID}' at ${url}`);
       process.exit(1);
     }
     channelId = portChannels[0].channel_id;
