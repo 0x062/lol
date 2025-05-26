@@ -13,7 +13,6 @@ const CHANNEL_ID = process.env.CHANNEL_ID || '7';
 const TIMEOUT_SECONDS = parseInt(process.env.TIMEOUT_SECONDS || '300', 10);
 
 // Union GraphQL polling config
-typeof GRAPHQL_ENDPOINT;
 const GRAPHQL_ENDPOINT = 'https://graphql.union.build/v1/graphql';
 const POLL_MAX_RETRIES = 50;
 const POLL_INTERVAL_MS = 5000;
