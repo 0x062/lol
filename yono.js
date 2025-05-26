@@ -11,6 +11,7 @@ const MNEMONIC          = process.env.MNEMONIC;
 const ADDRESS_PREFIX    = process.env.ADDRESS_PREFIX || 'xion';
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
 const PORT_ID           = process.env.PORT_ID || 'transfer';
+const ENV_CHANNEL_ID    = process.env.CHANNEL_ID;
 const DENOM             = process.env.DENOM || 'uxion';
 const AMOUNT            = process.env.AMOUNT;
 const FEE_DENOM         = process.env.FEE_DENOM || 'uxion';
@@ -36,6 +37,7 @@ console.log('> PORT_ID         :', PORT_ID);
 console.log('> DENOM           :', DENOM);
 console.log('> AMOUNT          :', AMOUNT);
 console.log('> Fee Denom/Amount:', FEE_DENOM, '/', FEE_AMOUNT);
+if (ENV_CHANNEL_ID) console.log('> Env CHANNEL_ID  :', ENV_CHANNEL_ID);
 
 async function pollPacketHash(txHash) {
   const query = `query($submission_tx_hash:String!){v2_transfers(args:{p_transaction_hash:$submission_tx_hash}){packet_hash}}`;
@@ -77,23 +79,26 @@ async function main() {
   const client = await SigningStargateClient.connectWithSigner(RPC_ENDPOINT, wallet);
   console.log('✅ Connected to chain.');
 
-  // Dynamically fetch IBC channel for PORT_ID via REST
-  console.log('🔎 Fetching IBC channels for port', PORT_ID);
+  // Determine IBC channel
   let channelId;
-  try {
-    const url = `${REST_ENDPOINT.replace(/\/$/, '')}/cosmos/ibc/core/channel/v1/channels`;
-    const res = await axios.get(url);
-    const channels = res.data.channels || [];
-    const portChannels = channels.filter(ch => ch.port_id === PORT_ID);
-    if (!portChannels.length) {
-      console.error(`❌ No IBC channels found for port '${PORT_ID}' at ${url}`);
+  if (ENV_CHANNEL_ID) {
+    channelId = ENV_CHANNEL_ID;
+    console.log('ℹ️ Using CHANNEL_ID from env:', channelId);
+  } else {
+    console.log('🔎 Attempting to fetch IBC channels for port', PORT_ID);
+    try {
+      const url = `${REST_ENDPOINT.replace(/\/$/, '')}/cosmos/ibc/core/channel/v1/channels`;
+      const res = await axios.get(url);
+      const channels = res.data.channels || [];
+      const portChannels = channels.filter(ch => ch.port_id === PORT_ID);
+      if (!portChannels.length) throw new Error(`No channels for port ${PORT_ID}`);
+      channelId = portChannels[0].channel_id;
+      console.log('ℹ️ Detected IBC channel:', channelId);
+    } catch (err) {
+      console.warn('⚠️ Could not auto-fetch IBC channel:', err.message);
+      console.error('❗ Please set CHANNEL_ID manually in .env');
       process.exit(1);
     }
-    channelId = portChannels[0].channel_id;
-    console.log('> Using IBC channel:', channelId);
-  } catch (err) {
-    console.error('❌ Failed to fetch IBC channels from REST endpoint:', err.message);
-    process.exit(1);
   }
 
   // Fetch balances
