@@ -7,7 +7,7 @@ const axios = require('axios');
 // Environment variables
 const RPC_ENDPOINT       = process.env.RPC_ENDPOINT;
 const MNEMONIC           = process.env.MNEMONIC;
-const PREFIX             = process.env.PREFIX || 'xion';
+const PREFIX = 'xion';
 const RECIPIENT_BABYLON  = process.env.RECIPIENT_BABYLON;
 const PORT_ID            = process.env.PORT_ID || 'transfer';
 const CHANNEL_ID         = process.env.CHANNEL_ID || 'channel-7';
