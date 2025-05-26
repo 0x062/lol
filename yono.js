@@ -4,9 +4,10 @@ const { DirectSecp256k1HdWallet } = require('@cosmjs/proto-signing');
 const { SigningStargateClient } = require('@cosmjs/stargate');
 const axios = require('axios');
 
-// === Configuration from .env ===
+// === Configuration from .env (ensure .env has RPC_ENDPOINT and MNEMONIC) ===
 const RPC_ENDPOINT      = process.env.RPC_ENDPOINT;
 const MNEMONIC          = process.env.MNEMONIC;
+const PREFIX            = process.env.PREFIX || 'xion';
 const RECIPIENT_BABYLON = process.env.RECIPIENT_BABYLON;
 const PORT_ID           = process.env.PORT_ID || 'transfer';
 const CHANNEL_ID        = process.env.CHANNEL_ID || 'channel-7';
@@ -20,6 +21,20 @@ const GRAPHQL_ENDPOINT  = 'https://graphql.union.build/v1/graphql';
 const POLL_MAX_RETRIES  = 50;
 const POLL_INTERVAL_MS  = 5000;
 
+// Basic env validation
+if (!RPC_ENDPOINT || !MNEMONIC || !RECIPIENT_BABYLON || !DENOM || !AMOUNT) {
+  console.error('❌ Missing env vars. Ensure .env includes RPC_ENDPOINT, MNEMONIC, RECIPIENT_BABYLON, DENOM, AMOUNT');
+  process.exit(1);
+}
+
+// Debug env values
+console.log('> RPC_ENDPOINT    :', RPC_ENDPOINT);
+console.log('> PREFIX          :', PREFIX);
+console.log('> RECIPIENT       :', RECIPIENT_BABYLON);
+console.log('> DENOM           :', DENOM);
+console.log('> AMOUNT          :', AMOUNT);
+console.log('> Fee Denom/Amount:', FEE_DENOM, '/', FEE_AMOUNT);
+
 async function pollPacketHash(txHash) {
   const query = `query($submission_tx_hash:String!){v2_transfers(args:{p_transaction_hash:$submission_tx_hash}){packet_hash}}`;
   const variables = { submission_tx_hash: txHash };
@@ -32,77 +47,55 @@ async function pollPacketHash(txHash) {
         { query, variables },
         { headers: { 'Content-Type': 'application/json' } }
       );
-
       const ph = res.data?.data?.v2_transfers?.[0]?.packet_hash;
       if (ph) return ph;
     } catch (err) {
       console.warn('Poll error:', err.message);
     }
-
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
   }
-
   throw new Error('Packet_hash poll timeout');
 }
 
 async function main() {
-  // Required ENV
-  if (!RPC_ENDPOINT || !MNEMONIC || !RECIPIENT_BABYLON || !DENOM || !AMOUNT) {
-    console.error('Missing .env values: RPC_ENDPOINT, MNEMONIC, RECIPIENT_BABYLON, DENOM, AMOUNT');
-    process.exit(1);
-  }
-
-  // Validate mnemonic
   const mnemonic = MNEMONIC.trim();
   if (!bip39.validateMnemonic(mnemonic)) {
-    console.error('Invalid mnemonic format. Ensure it is a BIP39 seed phrase (12/24 words).');
+    console.error('❌ Invalid mnemonic format (BIP39 12/24 words).');
     process.exit(1);
   }
 
-  // Static prefix
-  const prefix = process.env.PREFIX || 'xion';
-  console.log('🔑 Using prefix:', prefix);
-
-  // Initialize wallet
-  console.log('🔑 Initializing wallet from mnemonic...');
-  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix });
+  console.log('🔑 Initializing wallet with prefix:', PREFIX);
+  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: PREFIX });
   const [account] = await wallet.getAccounts();
   console.log('📬 Sender address:', account.address);
 
-  // Connect to RPC
   console.log('🔗 Connecting to RPC endpoint...');
   const client = await SigningStargateClient.connectWithSigner(RPC_ENDPOINT, wallet);
   console.log('✅ Connected to chain.');
 
-  // Check balances
   console.log('💰 Fetching balances...');
   const balances = await client.getAllBalances(account.address);
   console.log('Balances:', balances);
 
   if (!balances.find(c => c.denom === DENOM)) {
-    console.error(`Denom ${DENOM} not in balances. Check chain and channel configuration.`);
+    console.error(`❌ Denom ${DENOM} not found in balances.`);
     process.exit(1);
   }
 
-  // Build IBC timeout
   const latestHeight = await client.getHeight();
   const timeoutHeight = { revisionNumber: 0, revisionHeight: latestHeight + 1000 };
   const timeoutTimestamp = Math.floor(Date.now() / 1000) + TIMEOUT_SECONDS;
 
-  // Prepare amount and fee
   const amount = [{ denom: DENOM, amount: AMOUNT }];
   const fee = { amount: [{ denom: FEE_DENOM, amount: FEE_AMOUNT }], gas: GAS_LIMIT };
 
-  // Debug logs
-  console.log('>> DEBUG amount:', amount);
-  console.log('>> DEBUG fee:', fee);
-  console.log('>> DEBUG timeoutHeight:', timeoutHeight);
+  console.log('>> DEBUG amount         :', amount);
+  console.log('>> DEBUG fee            :', fee);
+  console.log('>> DEBUG timeoutHeight  :', timeoutHeight);
   console.log('>> DEBUG timeoutTimestamp:', timeoutTimestamp);
 
-  // Send IBC tokens
   console.log(`🚀 Sending ${AMOUNT} (${DENOM}) to ${RECIPIENT_BABYLON} via IBC (${PORT_ID}/${CHANNEL_ID})...`);
   let result;
-
   try {
     result = await client.sendIbcTokens(
       account.address,
@@ -121,11 +114,10 @@ async function main() {
 
   console.log('📨 Tx Hash:', result.transactionHash);
   if (result.code !== 0) {
-    console.error('❌ IBC transfer error:', result.rawLog);
+    console.error('❌ Transfer error:', result.rawLog);
     process.exit(1);
   }
 
-  // Poll Union for packet_hash
   try {
     const packetHash = await pollPacketHash(result.transactionHash);
     console.log('🧵 Packet Hash:', packetHash);
