@@ -1,4 +1,5 @@
 require('dotenv').config();
+const bip39 = require('bip39');
 const { DirectSecp256k1HdWallet } = require('@cosmjs/proto-signing');
 const { SigningStargateClient } = require('@cosmjs/stargate');
 const axios = require('axios');
