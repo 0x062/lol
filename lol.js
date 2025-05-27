@@ -152,7 +152,7 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
         if (packetHash) {
              bufferReport(`✅ USDC Xion -> Holesky @ ${timelog()} | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | Packet: \`${packetHash.substring(0, 10)}...\``);
         } else {
-             bufferReport(`✅ USDC Xion -> Holesky @ ${timelog()} | Xion Tx: \`${xionTxHLogika di Balik Eksperimen Ini:ash.substring(0, 6)}...\` | ⚠ Packet N/A`);
+             bufferReport(`✅ USDC Xion -> Holesky @ ${timelog()} | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | ⚠ Packet N/A`);
         }
 
     } catch (err) {
