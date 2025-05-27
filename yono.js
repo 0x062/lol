@@ -1,8 +1,9 @@
 const { DirectSecp256k1HdWallet } = require("@cosmjs/proto-signing");
 const { SigningCosmWasmClient } = require("@cosmjs/cosmwasm-stargate"); // Hapus 'coin' dari sini
 const { calculateFee, GasPrice, coin } = require("@cosmjs/stargate");   // Tambahkan 'coin' di sini
-const crypto = require('crypto'); // Untuk membuat salt acak
+const crypto = require('crypto');
 const axios = require('axios');
+const { sendReport } = require('./telegramReporter');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logger = {
