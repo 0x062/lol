@@ -58,7 +58,6 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
     payload.send.salt = '0x' + crypto.randomBytes(32).toString('hex');
 
     logger.loading(`Sending message to ${bridgeContractAddress}:`);
-    console.log(JSON.stringify(payload.send, null, 2)); 
 
     const funds = [ coin("10000", "uxion") ];
     const fee = calculateFee(GAS_LIMIT, GasPrice.fromString(GAS_PRICE_STR));
