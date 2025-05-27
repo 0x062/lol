@@ -122,7 +122,10 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
     // logger.info("Using exact payload from template:", JSON.stringify(exactMessagePayload, null, 2)); 
 
     const fee = calculateFee(GAS_LIMIT, GasPrice.fromString(GAS_PRICE_STR));
-
+    const finalMsgObjectForContract = exactMessagePayload; 
+    const scriptGeneratedJsonString = JSON.stringify(finalMsgObjectForContract); // Ini akan jadi string JSON kompak
+    logger.info("Script generated JSON string for 'msg' (before Base64 by CosmJS):");
+    console.log(scriptGeneratedJsonString); 
     try {
         const result = await client.execute(
             senderXionAddress,
