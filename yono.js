@@ -25,18 +25,63 @@ async function flushReport() {
 function timelog() { return new Date().toISOString(); }
 // --------------------------------------------------------------------------
 
+async function pollUnionForPacketHash(txHash, retries = 50, intervalMs = 6000) {
+    const POLLING_URL = "https://graphql.union.build/v1/graphql";
+    const HEADERS = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Origin': 'https://app.union.build', // Penting untuk CORS
+        'Referer': 'https://app.union.build/',
+    };
+
+    // Format hash Xion agar mirip contoh (tambah 0x)
+    // Hash Xion biasanya Uppercase, jadi kita ubah ke lowercase dulu
+    const submissionHash = '0x' + txHash.toLowerCase(); 
+
+    const data = {
+        query: `
+            query GetPacketHashBySubmissionTxHash($submission_tx_hash: String!) {
+              v2_transfers(args: {p_transaction_hash: $submission_tx_hash}) {
+                packet_hash
+              }
+            }
+        `,
+        variables: {
+            submission_tx_hash: submissionHash
+        },
+        operationName: "GetPacketHashBySubmissionTxHash"
+    };
+
+    logger.loading(`Polling Union for Packet Hash using ${submissionHash.substring(0, 15)}...`);
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            const res = await axios.post(POLLING_URL, data, { headers: HEADERS });
+            const result = res.data?.data?.v2_transfers;
+
+            if (result && result.length > 0 && result[0].packet_hash) {
+                logger.success(`  ⮡ Packet Hash found: ${result[0].packet_hash}`);
+                return result[0].packet_hash; // KEMBALIKAN PACKET HASH
+            } else {
+                logger.loading(`  Waiting for Union packet... (Try ${i + 1}/${retries})`);
+            }
+        } catch (e) {
+            // Kita log error tapi tetap lanjut polling (mungkin error sementara)
+            logger.error(`  Polling error: ${e.response ? JSON.stringify(e.response.data) : e.message}`);
+        }
+        await delay(intervalMs); // Tunggu sebelum mencoba lagi
+    }
+
+    logger.warn(`  Could not retrieve Packet hash after ${retries} retries.`);
+    return null; // Kembalikan null jika tidak ditemukan
+}
 
 async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress, messageTemplate, fundsToSend = []) {
+    // ... (kode setup wallet & koneksi - tetap sama) ...
     const XION_PREFIX = "xion";
+    const BRIDGE_CONTRACT_ADDRESS = "xion1336jj8ertl8h7rdvnz4dh5rqahd09cy0x43guhsxx6xyrztx292qlzhdk9"; 
     const GAS_PRICE_STR = "0.025uxion"; 
     const GAS_LIMIT = 700000; 
-
-    if (!bridgeContractAddress || !bridgeContractAddress.startsWith("xion1")) {
-        logger.error("Alamat Kontrak Jembatan Xion tidak valid!");
-        bufferReport("❌ Gagal: Alamat Kontrak Jembatan Xion tidak valid!");
-        await flushReport();
-        return;
-    }
 
     logger.loading(`Preparing Xion wallet...`);
     const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: XION_PREFIX });
@@ -57,7 +102,7 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
     payload.send.timeout_timestamp = (currentTimestampNs + BigInt(fifteenMinutesInNs)).toString();
     payload.send.salt = '0x' + crypto.randomBytes(32).toString('hex');
 
-    logger.loading(`Sending message to ${bridgeContractAddress}:`);
+    logger.loading(`Sending message to ${BRIDGE_CONTRACT_ADDRESS}...`);
 
     const funds = [ coin("10000", "uxion") ];
     const fee = calculateFee(GAS_LIMIT, GasPrice.fromString(GAS_PRICE_STR));
@@ -65,15 +110,25 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
     try {
         const result = await client.execute(
             senderXionAddress,
-            bridgeContractAddress,
+            BRIDGE_CONTRACT_ADDRESS,
             payload, 
             fee, 
-            "Xion to Holesky via JS Partner v4",
+            "Xion to Holesky via JS Partner v7", 
             funds
         );
 
-        logger.success(`Transaction sent on Xion! Hash: ${result.transactionHash}`);
-        bufferReport(`✅ Initiated Xion -> Holesky | Xion Tx: \`${result.transactionHash.substring(0, 10)}...\``);
+        const xionTxHash = result.transactionHash;
+        logger.success(`Transaction sent on Xion! Hash: ${xionTxHash}`);
+        
+        // +++ PANGGIL FUNGSI POLLING DI SINI +++
+        const packetHash = await pollUnionForPacketHash(xionTxHash);
+
+        if (packetHash) {
+             bufferReport(`✅ Initiated Xion -> Holesky | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | Packet: \`${packetHash.substring(0, 10)}...\``);
+        } else {
+             bufferReport(`✅ Initiated Xion -> Holesky | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | ⚠ Packet N/A`);
+        }
+        // +++ SELESAI POLLING +++
 
     } catch (err) {
         logger.error(`Xion transaction failed: ${err.message}`);
@@ -82,7 +137,6 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
 
     await flushReport();
 }
-
 // --- Fungsi untuk Menjalankan ---
 async function runXionTransfer() {
     require('dotenv').config(); // Pastikan .env dimuat
