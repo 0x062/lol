@@ -15,13 +15,33 @@ const logger = {
 };
 let reportBuffer = [];
 function bufferReport(text) { reportBuffer.push(text); }
-async function flushReport() { 
-    console.log("--- TELEGRAM REPORT ---"); 
-    console.log(reportBuffer.join("\n")); 
-    console.log("-----------------------");
-    reportBuffer = []; 
-    // Ganti dengan fungsi sendReport asli Anda:
-    // try { await sendReport(reportBuffer.join("\n")); } catch (err) { logger.error(`Telegram report failed: ${err.message}`); } reportBuffer = [];
+// ... (import lain)
+// Pastikan ini ada jika belum:
+// const { sendReport } = require('./telegramReporter'); // <== Ini mengimpor fungsi asli Anda
+
+async function flushReport() {
+    if (!reportBuffer.length) return; // Jangan lakukan apa-apa jika buffer kosong
+
+    const messageToSend = reportBuffer.join("\n");
+
+    // --- BAGIAN PENGIRIMAN TELEGRAM ---
+    try {
+        logger.loading("Sending report to Telegram..."); // Tambahkan log
+        // Ganti console.log di bawah dengan pemanggil sendReport asli Anda:
+        // console.log("--- TELEGRAM REPORT (SIMULASI) ---");
+        // console.log(messageToSend);
+        // console.log("----------------------------------");
+        
+        // ++ AKTIFKAN BARIS INI UNTUK MENGIRIM KE TELEGRAM ++
+        await sendReport(messageToSend); 
+        logger.success("Telegram report sent successfully!"); // Tambahkan log sukses
+
+    } catch (err) {
+        logger.error(`Telegram report failed: ${err.message}`);
+    }
+    // ---------------------------------
+
+    reportBuffer = []; // Kosongkan buffer
 }
 function timelog() { return new Date().toISOString(); }
 // --------------------------------------------------------------------------
