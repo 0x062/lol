@@ -1,6 +1,6 @@
 const { DirectSecp256k1HdWallet } = require("@cosmjs/proto-signing");
-const { SigningCosmWasmClient, coin } = require("@cosmjs/cosmwasm-stargate");
-const { calculateFee, GasPrice } = require("@cosmjs/stargate");
+const { SigningCosmWasmClient } = require("@cosmjs/cosmwasm-stargate"); // Hapus 'coin' dari sini
+const { calculateFee, GasPrice, coin } = require("@cosmjs/stargate");   // Tambahkan 'coin' di sini
 const crypto = require('crypto'); // Untuk membuat salt acak
 
 // --- PASTE KODE LAIN ANDA DI SINI (logger, bufferReport, flushReport, dll.) ---
