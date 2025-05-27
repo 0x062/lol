@@ -98,12 +98,12 @@ async function pollUnionForPacketHash(txHash, retries = 50, intervalMs = 6000) {
 }
 
 async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress, messageTemplate, fundsToSend = []) {
-    // ... (kode setup wallet & koneksi - tetap sama) ...
     const XION_PREFIX = "xion";
     const BRIDGE_CONTRACT_ADDRESS = "xion1336jj8ertl8h7rdvnz4dh5rqahd09cy0x43guhsxx6xyrztx292qlzhdk9"; 
     const GAS_PRICE_STR = "0.025uxion"; 
     const GAS_LIMIT = 700000; 
 
+    // ... (kode setup wallet & koneksi - tetap sama) ...
     logger.loading(`Preparing Xion wallet...`);
     const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: XION_PREFIX });
     const [firstAccount] = await wallet.getAccounts();
@@ -118,12 +118,16 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
 
     let payload = JSON.parse(JSON.stringify(messageTemplate));
 
-    const fifteenMinutesInNs = 15 * 60 * 1000 * 1_000_000;
-    const currentTimestampNs = BigInt(Date.now()) * 1_000_000n;
-    payload.send.timeout_timestamp = (currentTimestampNs + BigInt(fifteenMinutesInNs)).toString();
+    // +++ PERUBAHAN DI SINI UNTUK TIMEOUT 24 JAM +++
+    const twentyFourHoursInNs = 24n * 60n * 60n * 1000n * 1_000_000n; // 24 jam dalam nanodetik
+    const currentTimestampNs = BigInt(Date.now()) * 1_000_000n;      // Waktu saat ini dalam nanodetik
+    payload.send.timeout_timestamp = (currentTimestampNs + twentyFourHoursInNs).toString();
+    // +++ SELESAI PERUBAHAN TIMEOUT +++
+
     payload.send.salt = '0x' + crypto.randomBytes(32).toString('hex');
 
     logger.loading(`Sending message to ${BRIDGE_CONTRACT_ADDRESS}...`);
+    // console.log(JSON.stringify(payload, null, 2)); // Baris ini sudah kita hapus/komentari
 
     const funds = [ coin("10000", "uxion") ];
     const fee = calculateFee(GAS_LIMIT, GasPrice.fromString(GAS_PRICE_STR));
@@ -134,14 +138,13 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
             BRIDGE_CONTRACT_ADDRESS,
             payload, 
             fee, 
-            "Xion to Holesky via JS Partner v7", 
+            "Xion to Holesky via JS Partner (24h timeout)", // Update memo jika mau 
             funds
         );
 
         const xionTxHash = result.transactionHash;
         logger.success(`Transaction sent on Xion! Hash: ${xionTxHash}`);
         
-        // +++ PANGGIL FUNGSI POLLING DI SINI +++
         const packetHash = await pollUnionForPacketHash(xionTxHash);
 
         if (packetHash) {
@@ -149,7 +152,6 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
         } else {
              bufferReport(`✅ Initiated Xion -> Holesky | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | ⚠ Packet N/A`);
         }
-        // +++ SELESAI POLLING +++
 
     } catch (err) {
         logger.error(`Xion transaction failed: ${err.message}`);
