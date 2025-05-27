@@ -169,7 +169,7 @@ async function runUSDCTransfer() {
     
     const usdcMessageTemplate = {
       "send": {
-        "channel_id": 1,
+        "channel_id": "1",
         "timeout_height": "0",
         "timeout_timestamp": "1748611874173000000", // Akan di-update otomatis
         "salt": "0x0fcb7b7ffb279f3fdb3f796c38c8757216154cec1f3d121d6542496d6ee0bdf0", // Akan di-update otomatis
