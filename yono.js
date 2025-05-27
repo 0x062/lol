@@ -4,8 +4,7 @@ const { calculateFee, GasPrice, coin } = require("@cosmjs/stargate");   // Tamba
 const crypto = require('crypto'); // Untuk membuat salt acak
 const axios = require('axios');
 
-// --- PASTE KODE LAIN ANDA DI SINI (logger, bufferReport, flushReport, dll.) ---
-// Contoh logger (jika belum ada)
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const logger = {
   info: (msg) => console.log(`[✓] ${msg}`),
   warn: (msg) => console.log(`[⚠] ${msg}`),
