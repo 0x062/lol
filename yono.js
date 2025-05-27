@@ -67,7 +67,7 @@ async function sendToXionBridge(mnemonic, xionRpcEndpoint, bridgeContractAddress
         const result = await client.execute(
             senderXionAddress,
             bridgeContractAddress,
-            payload.send, 
+            payload, 
             fee, 
             "Xion to Holesky via JS Partner v4",
             funds
