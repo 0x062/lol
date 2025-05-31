@@ -86,6 +86,9 @@ async function pollUnionForPacketHash(txHash, chainName = "HoleskyComplex", retr
     return null;
 }
 
+// File: holesky_usdc_to_xion.js
+// ... (bagian import, helper, pollUnionForPacketHash tetap sama) ...
+
 // --------------------------------------------------------------------------
 // 5. BRIDGE FUNCTION: HOLESKY (EVM) -> XION (COSMOS) - Versi Fungsi Send Kompleks
 // --------------------------------------------------------------------------
@@ -114,7 +117,7 @@ async function sendHoleskyToXionBridge_Complex(
         return null;
     }
 
-    const provider = new ethers.providers.JsonRpcProvider(holeskyRpcEndpoint); // ethers v5 uses ethers.providers.JsonRpcProvider
+    const provider = new ethers.providers.JsonRpcProvider(holeskyRpcEndpoint);
     const wallet = new ethers.Wallet(holeskyPrivateKey, provider);
     logger.info(`[HoleskyComplex] Wallet Address: ${wallet.address}`);
 
@@ -129,12 +132,13 @@ async function sendHoleskyToXionBridge_Complex(
     const bridgeContract = new ethers.Contract(holeskyBridgeContractAddress, complexBridgeAbi, wallet);
     const tokenContract = new ethers.Contract(usdcTokenAddress, erc20Abi, wallet);
 
+    let tx; // Deklarasikan tx di sini agar bisa diakses di blok catch jika perlu
     try {
         logger.loading(`[HoleskyComplex] Approving ${usdcAmountToBridge} USDC (${usdcTokenAddress}) for bridge contract ${holeskyBridgeContractAddress}...`);
         const currentAllowance = await tokenContract.allowance(wallet.address, holeskyBridgeContractAddress);
         logger.info(`[HoleskyComplex] Current USDC allowance: ${currentAllowance.toString()}`);
 
-        if (currentAllowance.lt(ethers.BigNumber.from(usdcAmountToBridge))) { // ethers v5 uses .lt() and BigNumber.from()
+        if (currentAllowance.lt(ethers.BigNumber.from(usdcAmountToBridge))) {
             const approveTx = await tokenContract.approve(holeskyBridgeContractAddress, ethers.BigNumber.from(usdcAmountToBridge), { gasLimit: 100000 });
             logger.loading(`[HoleskyComplex] Approval transaction sent: ${approveTx.hash}. Waiting for confirmation...`);
             await approveTx.wait();
@@ -146,11 +150,11 @@ async function sendHoleskyToXionBridge_Complex(
         const twentyFourHoursInNs = 24n * 60n * 60n * 1000n * 1_000_000n;
         const currentTimestampNs = BigInt(Date.now()) * 1_000_000n;
         const timeoutTimestamp = (currentTimestampNs + twentyFourHoursInNs).toString();
-        const salt = ethers.utils.hexlify(ethers.utils.randomBytes(32)); // ethers v5 uses ethers.utils.hexlify dan ethers.utils.randomBytes
+        const salt = ethers.utils.hexlify(ethers.utils.randomBytes(32));
 
         const instructionTuple = [
-            parseInt(param_tuple_uint8_1, 10), // Menggunakan parseInt untuk uint8
-            parseInt(param_tuple_uint8_2, 10), // Menggunakan parseInt untuk uint8
+            parseInt(param_tuple_uint8_1, 10),
+            parseInt(param_tuple_uint8_2, 10),
             instructionBytesPayload
         ];
 
@@ -160,19 +164,30 @@ async function sendHoleskyToXionBridge_Complex(
         
         const transactionOptions = { gasLimit: gasLimitHolesky };
         
-        const tx = await bridgeContract.send(
-            parseInt(param_uint32_1, 10), // Menggunakan parseInt untuk uint32
-            ethers.BigNumber.from(param_uint64_2_timeoutHeight), // ethers v5 menggunakan BigNumber untuk uint64
-            ethers.BigNumber.from(timeoutTimestamp),          // ethers v5 menggunakan BigNumber untuk uint64
+        tx = await bridgeContract.send( // Assign ke tx yang dideklarasikan di luar try
+            parseInt(param_uint32_1, 10),
+            ethers.BigNumber.from(param_uint64_2_timeoutHeight),
+            ethers.BigNumber.from(timeoutTimestamp),
             salt,
             instructionTuple,
             transactionOptions
         );
 
-        logger.loading(`[HoleskyComplex] Transaction sent: ${tx.hash}. Waiting for confirmation...`);
-        const receipt = await tx.wait();
-        logger.success(`[HoleskyComplex] Transaction confirmed! Block: ${receipt.blockNumber}`);
-        const holeskyTxHash = receipt.hash;
+        logger.loading(`[HoleskyComplex] Transaction sent: ${tx.hash}. Waiting for confirmation...`); // tx.hash sudah ada di sini
+        const receipt = await tx.wait(); // Tunggu konfirmasi
+        
+        // Periksa status transaksi dari receipt
+        if (receipt.status === 0) {
+            logger.error(`[HoleskyComplex] Transaction failed on-chain (reverted). TxHash: ${tx.hash}`);
+            await sendReport(`❌ Failed HoleskyComplex -> Xion: Transaction ${tx.hash.substring(0,10)}... reverted.`);
+            return null; // Keluar jika transaksi revert
+        }
+
+        logger.success(`[HoleskyComplex] Transaction confirmed! Block: ${receipt.blockNumber}, TxHash: ${tx.hash}`);
+        
+        // === PERBAIKAN: Gunakan tx.hash yang sudah pasti ada ===
+        const holeskyTxHash = tx.hash; 
+        // =======================================================
 
         logger.info(`[HoleskyComplex->Union] Polling Union for packet hash using Holesky Tx Hash: ${holeskyTxHash}`);
         const packetHash = await pollUnionForPacketHash(holeskyTxHash, "HoleskyComplex");
@@ -191,7 +206,6 @@ async function sendHoleskyToXionBridge_Complex(
     } catch (err) {
         logger.error(`[HoleskyComplex] Transaction failed: ${err.message}`);
         let detailedErrorMessage = err.message;
-        // Penanganan error yang lebih detail untuk ethers v5
         if (err.code === ethers.utils.Logger.errors.CALL_EXCEPTION) {
             logger.error(`[HoleskyComplex] Call exception: ${err.reason}`);
             detailedErrorMessage = err.reason || err.message;
@@ -201,18 +215,21 @@ async function sendHoleskyToXionBridge_Complex(
         } else if (err.data && typeof err.data === 'string') {
              logger.error(`[HoleskyComplex] Error data: ${err.data}`);
              detailedErrorMessage += ` | Data: ${err.data}`;
-        } else if (err.error && err.error.data && err.error.data.message) { // Common for Hardhat/Foundry nodes
+        } else if (err.error && err.error.data && err.error.data.message) {
             logger.error(`[HoleskyComplex] Full error: ${err.error.data.message}`);
             detailedErrorMessage = err.error.data.message;
         }
-        if (err.transactionHash) {
-             logger.error(`[HoleskyComplex] Failed Tx Hash: ${err.transactionHash}`);
-        }
-        await sendReport(`❌ Failed HoleskyComplex (0.01 USDC) -> Xion: ${detailedErrorMessage.substring(0, 150)}...`);
+        // Jika transaksi sudah terkirim (tx.hash ada) tapi error terjadi setelahnya (misal saat tx.wait())
+        const failedTxHash = tx ? tx.hash : (err.transactionHash || "N/A");
+        logger.error(`[HoleskyComplex] Failed Tx Hash: ${failedTxHash}`);
+        
+        await sendReport(`❌ Failed HoleskyComplex (0.01 USDC) -> Xion: ${detailedErrorMessage.substring(0, 150)}... Tx: ${failedTxHash.substring(0,10)}`);
         return null;
     }
 }
 
+// ... (fungsi runHoleskyToXionTransfer, main, dan .catch() tetap sama) ...
+    
 // --------------------------------------------------------------------------
 // 6. RUNNER FUNCTION
 // --------------------------------------------------------------------------
