@@ -114,7 +114,7 @@ async function sendHoleskyToXionBridge_Complex(
         return null;
     }
 
-    const provider = new ethers.JsonRpcProvider(holeskyRpcEndpoint);
+    const provider = new ethers.providers.JsonRpcProvider(holeskyRpcEndpoint); // ethers v5 uses ethers.providers.JsonRpcProvider
     const wallet = new ethers.Wallet(holeskyPrivateKey, provider);
     logger.info(`[HoleskyComplex] Wallet Address: ${wallet.address}`);
 
@@ -134,8 +134,8 @@ async function sendHoleskyToXionBridge_Complex(
         const currentAllowance = await tokenContract.allowance(wallet.address, holeskyBridgeContractAddress);
         logger.info(`[HoleskyComplex] Current USDC allowance: ${currentAllowance.toString()}`);
 
-        if (currentAllowance < BigInt(usdcAmountToBridge)) {
-            const approveTx = await tokenContract.approve(holeskyBridgeContractAddress, BigInt(usdcAmountToBridge), { gasLimit: 100000 });
+        if (currentAllowance.lt(ethers.BigNumber.from(usdcAmountToBridge))) { // ethers v5 uses .lt() and BigNumber.from()
+            const approveTx = await tokenContract.approve(holeskyBridgeContractAddress, ethers.BigNumber.from(usdcAmountToBridge), { gasLimit: 100000 });
             logger.loading(`[HoleskyComplex] Approval transaction sent: ${approveTx.hash}. Waiting for confirmation...`);
             await approveTx.wait();
             logger.success(`[HoleskyComplex] USDC token approved successfully.`);
@@ -146,11 +146,11 @@ async function sendHoleskyToXionBridge_Complex(
         const twentyFourHoursInNs = 24n * 60n * 60n * 1000n * 1_000_000n;
         const currentTimestampNs = BigInt(Date.now()) * 1_000_000n;
         const timeoutTimestamp = (currentTimestampNs + twentyFourHoursInNs).toString();
-        const salt = ethers.hexlify(ethers.randomBytes(32));
+        const salt = ethers.utils.hexlify(ethers.utils.randomBytes(32)); // ethers v5 uses ethers.utils.hexlify dan ethers.utils.randomBytes
 
         const instructionTuple = [
-            ethers.getNumber(param_tuple_uint8_1),
-            ethers.getNumber(param_tuple_uint8_2),
+            parseInt(param_tuple_uint8_1, 10), // Menggunakan parseInt untuk uint8
+            parseInt(param_tuple_uint8_2, 10), // Menggunakan parseInt untuk uint8
             instructionBytesPayload
         ];
 
@@ -161,9 +161,9 @@ async function sendHoleskyToXionBridge_Complex(
         const transactionOptions = { gasLimit: gasLimitHolesky };
         
         const tx = await bridgeContract.send(
-            ethers.getNumber(param_uint32_1),
-            BigInt(param_uint64_2_timeoutHeight),
-            BigInt(timeoutTimestamp),
+            parseInt(param_uint32_1, 10), // Menggunakan parseInt untuk uint32
+            ethers.BigNumber.from(param_uint64_2_timeoutHeight), // ethers v5 menggunakan BigNumber untuk uint64
+            ethers.BigNumber.from(timeoutTimestamp),          // ethers v5 menggunakan BigNumber untuk uint64
             salt,
             instructionTuple,
             transactionOptions
@@ -181,35 +181,6 @@ async function sendHoleskyToXionBridge_Complex(
             await sendReport(`✅ HoleskyComplex (0.01 USDC) -> Xion | Holesky Tx: \`${holeskyTxHash.substring(0, 10)}...\` | Packet: \`${packetHash.substring(0, 10)}...\``);
             logger.success(`[HoleskyComplex->Xion] Packet hash received: ${packetHash}. Further Xion interaction needed.`);
             // !!! TODO: KIRIM PESAN KE KONTRAK XION UNTUK MENYELESAIKAN BRIDGE !!!
-            // Ini akan memerlukan @cosmjs/cosmwasm-stargate dan logika serupa dengan fungsi sendToXionBridge
-            // Contoh:
-            // const { SigningCosmWasmClient } = require("@cosmjs/cosmwasm-stargate");
-            // const { DirectSecp256k1HdWallet } = require("@cosmjs/proto-signing");
-            // const { calculateFee, GasPrice, coin } = require("@cosmjs/stargate");
-            // const xionMnemonic = process.env.XION_MNEMONIC; // Mnemonic untuk akun Xion yang akan membayar gas
-            // const xionRpc = process.env.XION_RPC_ENDPOINT; // RPC Xion
-            // const xionReceivingContract = process.env.XION_RECEIVING_CONTRACT_FOR_HOLESKY; // Kontrak di Xion yang menerima pesan ini
-            //
-            // const xionWallet = await DirectSecp256k1HdWallet.fromMnemonic(xionMnemonic, { prefix: "xion" });
-            // const [xionAccount] = await xionWallet.getAccounts();
-            // const xionClient = await SigningCosmWasmClient.connectWithSigner(xionRpc, xionWallet);
-            //
-            // const executeMsgPayload = {
-            // receive_packet: { // atau nama fungsi yang sesuai di kontrak Xion-mu
-            // source_chain: "holesky",
-            // packet_data_hex: packetHash, // atau format yang diharapkan kontrak Xion
-            // // ...parameter lain yang mungkin dibutuhkan kontrak Xion...
-            // }
-            // };
-            // const fee = calculateFee(300000, GasPrice.fromString("0.025uxion")); // Sesuaikan gas
-            // try {
-            //      const xionResult = await xionClient.execute(xionAccount.address, xionReceivingContract, executeMsgPayload, fee, "Complete Holesky Bridge on Xion");
-            //      logger.success(`[Xion] Bridge completion message sent: ${xionResult.transactionHash}`);
-            //      await sendReport(`✅ Xion side: Bridge completion TX \`${xionResult.transactionHash.substring(0,10)}...\``);
-            // } catch (xionError) {
-            //      logger.error(`[Xion] Failed to send completion message: ${xionError.message}`);
-            //      await sendReport(`❌ Xion side: Failed to complete bridge. Error: ${xionError.message.substring(0,100)}`);
-            // }
             return { holeskyTxHash, packetHash };
         } else {
             await sendReport(`✅ HoleskyComplex (0.01 USDC) -> Xion | Holesky Tx: \`${holeskyTxHash.substring(0, 10)}...\` | ⚠ Union Packet N/A`);
@@ -220,15 +191,19 @@ async function sendHoleskyToXionBridge_Complex(
     } catch (err) {
         logger.error(`[HoleskyComplex] Transaction failed: ${err.message}`);
         let detailedErrorMessage = err.message;
-        if (err.data && typeof err.data === 'string') {
+        // Penanganan error yang lebih detail untuk ethers v5
+        if (err.code === ethers.utils.Logger.errors.CALL_EXCEPTION) {
+            logger.error(`[HoleskyComplex] Call exception: ${err.reason}`);
+            detailedErrorMessage = err.reason || err.message;
+            if (err.transaction) {
+                 logger.error(`[HoleskyComplex] TX Data: ${JSON.stringify(err.transaction)}`);
+            }
+        } else if (err.data && typeof err.data === 'string') {
              logger.error(`[HoleskyComplex] Error data: ${err.data}`);
              detailedErrorMessage += ` | Data: ${err.data}`;
-        } else if (err.error && err.error.data && err.error.data.message) {
+        } else if (err.error && err.error.data && err.error.data.message) { // Common for Hardhat/Foundry nodes
             logger.error(`[HoleskyComplex] Full error: ${err.error.data.message}`);
             detailedErrorMessage = err.error.data.message;
-        } else if (err.info && err.info.error && err.info.error.message) {
-            logger.error(`[HoleskyComplex] Full error (fallback): ${err.info.error.message}`);
-            detailedErrorMessage = err.info.error.message;
         }
         if (err.transactionHash) {
              logger.error(`[HoleskyComplex] Failed Tx Hash: ${err.transactionHash}`);
@@ -255,17 +230,18 @@ async function runHoleskyToXionTransfer() {
         await sendReport("❌ Konfigurasi Holesky (Complex Send) tidak lengkap di .env!");
         return;
     }
-     if (!usdcTokenAddr.startsWith("0x") || !ethers.isAddress(usdcTokenAddr)) { // Validasi alamat
+    
+    // Menggunakan ethers.utils.isAddress untuk ethers v5
+    if (!usdcTokenAddr.startsWith("0x") || !ethers.utils.isAddress(usdcTokenAddr)) {
         logger.error(`HOLESKY_USDC_TOKEN_ADDRESS tidak valid: ${usdcTokenAddr}`);
         await sendReport(`❌ Alamat USDC Holesky tidak valid di .env: ${usdcTokenAddr}`);
         return;
     }
-    if (!holeskyBridgeAddr.startsWith("0x") || !ethers.isAddress(holeskyBridgeAddr)) { // Validasi alamat
+    if (!holeskyBridgeAddr.startsWith("0x") || !ethers.utils.isAddress(holeskyBridgeAddr)) {
         logger.error(`HOLESKY_BRIDGE_CONTRACT_ADDRESS tidak valid: ${holeskyBridgeAddr}`);
         await sendReport(`❌ Alamat Bridge Holesky tidak valid di .env: ${holeskyBridgeAddr}`);
         return;
     }
-
 
     // =======================================================================
     // Parameter Hardcoded (sesuai JSON dan permintaanmu)
@@ -295,10 +271,7 @@ async function runHoleskyToXionTransfer() {
 
     if (result && result.packetHash) {
         logger.info(`[HoleskyComplex->Xion] Bridge process for 0.01 USDC initiated. Packet Hash: ${result.packetHash}`);
-        // Laporan sudah dikirim dari dalam sendHoleskyToXionBridge_Complex
-        // !!! TODO: Implementasikan logika untuk mengirim packetHash ke kontrak Xion di sini !!!
         logger.info("!!! TODO: Implement Xion side completion logic here using the packetHash !!!");
-
     } else if (result && result.holeskyTxHash) {
         logger.warn(`[HoleskyComplex->Xion] Bridge for 0.01 USDC initiated on Holesky (${result.holeskyTxHash}), but packet hash not retrieved.`);
     } else {
