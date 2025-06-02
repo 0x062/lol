@@ -44,11 +44,13 @@ const logger = {
 // --------------------------------------------------------------------------
 async function pollUnionForPacketHash(txHash, chainName = "HoleskyComplex", retries = 50, intervalMs = 6000) {
     const POLLING_URL = process.env.UNION_POLLING_URL || "https://graphql.union.build/v1/graphql";
+    const commonBrowserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
     const HEADERS = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         'Origin': 'https://app.union.build',
         'Referer': 'https://app.union.build/',
+        'User-Agent': commonBrowserUserAgent
     };
     const submissionHash = txHash.startsWith('0x') ? txHash.toLowerCase() : '0x' + txHash.toLowerCase();
     const data = {
