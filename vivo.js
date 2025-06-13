@@ -205,7 +205,7 @@ async function runBabylonToXionTransfer() {
     }
 }
 
-// --- [BARU] --- Runner function untuk Xion -> SEI
+// --- GANTI FUNGSI LAMA DENGAN YANG BARU INI ---
 async function runXionToSeiTransfer() {
     logger.info("===== Starting Xion -> SEI Transfer Process =====");
     const mnemonic = process.env.XION_MNEMONIC;
@@ -215,14 +215,13 @@ async function runXionToSeiTransfer() {
         return;
     }
 
-    const rpc = process.env.XION_SEI_RPC_ENDPOINT; // Variabel .env baru
+    const rpc = process.env.XION_SEI_RPC_ENDPOINT;
     if (!rpc) {
         logger.error("XION_SEI_RPC_ENDPOINT tidak ditemukan!");
         bufferReport("❌ XION_SEI_RPC_ENDPOINT tidak ada di .env!");
         return;
     }
     
-    // Konfigurasi Xion -> SEI
     const config = {
         chainName: "Xion -> SEI",
         prefix: process.env.XION_SEI_PREFIX || "xion",
@@ -235,6 +234,13 @@ async function runXionToSeiTransfer() {
         channelId: parseInt(process.env.XION_SEI_CHANNEL_ID),
         instruction: process.env.XION_SEI_INSTRUCTION,
     };
+
+    // --- [BAGIAN DEBUG TAMBAHAN] ---
+    logger.warn("----------- DEBUGGING INSTRUCTION -----------");
+    console.log("Value:", config.instruction); // Mencetak nilainya
+    console.log("Length:", config.instruction ? config.instruction.length : "Not Found"); // Mencetak panjangnya
+    logger.warn("-------------------------------------------");
+    // --- [AKHIR BAGIAN DEBUG] ---
 
     if (!config.instruction || !config.contractAddress || !config.channelId) {
         logger.error(`[Xion->SEI] Konfigurasi (CONTRACT, INSTRUCTION, CHANNEL_ID) di .env belum lengkap!`);
