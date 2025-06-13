@@ -1,4 +1,4 @@
-// bridge_script.js
+// bridge_script.js (v3 - Fokus Hanya Babylon -> Xion)
 
 // --------------------------------------------------------------------------
 // 1. IMPORTS
@@ -8,32 +8,12 @@ const { SigningCosmWasmClient } = require("@cosmjs/cosmwasm-stargate");
 const { calculateFee, GasPrice, coin } = require("@cosmjs/stargate");
 const crypto = require('crypto');
 const axios = require('axios');
-require('dotenv').config(); // Memuat variabel dari .env
+require('dotenv').config();
 
 // --------------------------------------------------------------------------
-// 2. TELEGRAM REPORTER (Anda perlu membuat file ini: telegramReporter.js)
+// 2. TELEGRAM REPORTER
 // --------------------------------------------------------------------------
-/* Contoh isi telegramReporter.js:
-const axios = require('axios');
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
-async function sendReport(message) {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-        console.warn("[Telegram] Bot token or chat ID not configured. Logging to console instead.");
-        console.log("--- TELEGRAM REPORT (SIMULASI) ---\n" + message + "\n----------------------------------");
-        return;
-    }
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-    try {
-        await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' });
-    } catch (error) {
-        console.error(`[Telegram] Failed to send report: ${error.message}`);
-    }
-}
-module.exports = { sendReport };
-*/
-const { sendReport } = require('./telegramReporter'); // Pastikan file ini ada
+const { sendReport } = require('./telegramReporter');
 
 // --------------------------------------------------------------------------
 // 3. HELPER FUNCTIONS
@@ -67,33 +47,31 @@ async function flushReport() {
     reportBuffer = [];
 }
 
+function getRandomAmount(min, max) {
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 // --------------------------------------------------------------------------
 // 4. POLLING FUNCTION (UNION BUILD)
 // --------------------------------------------------------------------------
-async function pollUnionForPacketHash(txHash, chainName = "Xion", retries = 50, intervalMs = 6000) {
+async function pollUnionForPacketHash(txHash, chainName = "Babylon", retries = 50, intervalMs = 6000) {
     const POLLING_URL = process.env.UNION_POLLING_URL || "https://graphql.union.build/v1/graphql";
     const HEADERS = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Origin': 'https://app.union.build',
-        'Referer': 'https://app.union.build/',
+        'Accept': 'application/json', 'Content-Type': 'application/json',
+        'Origin': 'https://app.union.build', 'Referer': 'https://app.union.build/',
     };
-    const submissionHash = '0x' + txHash.toLowerCase(); // Cosmos TX hashes are uppercase, Union might expect lowercase w/ 0x
+    const submissionHash = '0x' + txHash.toLowerCase();
     const data = {
-        query: `
-            query GetPacketHashBySubmissionTxHash($submission_tx_hash: String!) {
-              v2_transfers(args: {p_transaction_hash: $submission_tx_hash}) {
-                packet_hash
-              }
-            }
-        `,
+        query: `query GetPacketHashBySubmissionTxHash($submission_tx_hash: String!) { v2_transfers(args: {p_transaction_hash: $submission_tx_hash}) { packet_hash } }`,
         variables: { submission_tx_hash: submissionHash },
         operationName: "GetPacketHashBySubmissionTxHash"
     };
     logger.loading(`[UnionPoll-${chainName}] Polling for Packet Hash using ${submissionHash.substring(0, 15)}... (Max ${retries} tries)`);
     for (let i = 0; i < retries; i++) {
         try {
-            const res = await axios.post(POLLING_URL, data, { headers: HEADERS, timeout: 10000 }); // Added timeout
+            const res = await axios.post(POLLING_URL, data, { headers: HEADERS, timeout: 10000 });
             const resultData = res.data?.data?.v2_transfers;
             if (resultData && resultData.length > 0 && resultData[0].packet_hash) {
                 logger.success(`[UnionPoll-${chainName}] Packet Hash found: ${resultData[0].packet_hash}`);
@@ -104,11 +82,9 @@ async function pollUnionForPacketHash(txHash, chainName = "Xion", retries = 50, 
         } catch (e) {
             const errorMessage = e.response ? JSON.stringify(e.response.data) : e.message;
             logger.error(`[UnionPoll-${chainName}] Polling error: ${errorMessage.substring(0, 200)}...`);
-            // Retry on network errors or server-side issues
             if (!e.response || e.code === 'ECONNABORTED' || e.response?.status >= 500) {
                  logger.warn(`[UnionPoll-${chainName}] Retrying after network/server error...`);
             }
-            // For other errors (like 4xx), it might still retry, or you could choose to break.
         }
         await delay(intervalMs);
     }
@@ -117,115 +93,38 @@ async function pollUnionForPacketHash(txHash, chainName = "Xion", retries = 50, 
 }
 
 // --------------------------------------------------------------------------
-// 5. BRIDGE FUNCTIONS
+// 5. BRIDGE FUNCTION (BABYLON -> XION)
 // --------------------------------------------------------------------------
-
-// ------- 5.1 XION -> HOLESKY -------
-async function sendToXionBridge(
-    mnemonic,
-    xionRpcEndpoint,
-    bridgeContractAddress,
-    messageTemplate, // This is the { send: { ... } } object
-    funds           // This is an array of Coin objects, e.g., [coin("10000", "uxion")]
-) {
-    const XION_PREFIX = process.env.XION_PREFIX || "xion";
-    const XION_GAS_PRICE_STR = process.env.XION_GAS_PRICE || "0.025uxion";
-    const XION_GAS_LIMIT = parseInt(process.env.XION_GAS_LIMIT || "700000");
-
-    logger.loading(`[Xion] Preparing wallet with prefix '${XION_PREFIX}'...`);
-    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: XION_PREFIX });
-    const [firstAccount] = await wallet.getAccounts();
-    const senderXionAddress = firstAccount.address;
-    logger.info(`[Xion] Wallet Address: ${senderXionAddress}`);
-
-    logger.loading(`[Xion] Connecting to RPC (${xionRpcEndpoint})...`);
-    const client = await SigningCosmWasmClient.connectWithSigner(xionRpcEndpoint, wallet);
-
-    let payload = JSON.parse(JSON.stringify(messageTemplate)); // Deep clone
-    const twentyFourHoursInNs = 24n * 60n * 60n * 1000n * 1_000_000n;
-    const currentTimestampNs = BigInt(Date.now()) * 1_000_000n;
-    // Ensure the 'send' object exists before trying to set properties on it
-    if (!payload.send) payload.send = {};
-    payload.send.timeout_timestamp = (currentTimestampNs + twentyFourHoursInNs).toString();
-    payload.send.salt = '0x' + crypto.randomBytes(32).toString('hex');
-
-    const fee = calculateFee(XION_GAS_LIMIT, GasPrice.fromString(XION_GAS_PRICE_STR));
-
-    logger.loading(`[Xion] Sending message to contract ${bridgeContractAddress}...`);
-    try {
-        const result = await client.execute(
-            senderXionAddress,
-            bridgeContractAddress,
-            payload, // This is the 'msg' object for the contract
-            fee,
-            "Xion to Holesky via JS Partner (24h timeout)",
-            funds
-        );
-        const xionTxHash = result.transactionHash;
-        logger.success(`[Xion] Transaction sent! Hash: ${xionTxHash}`);
-        logger.info(`[Xion->Union] Attempting to poll Union for packet hash using Xion Tx Hash: ${xionTxHash}`);
-        const packetHash = await pollUnionForPacketHash(xionTxHash, "Xion");
-        if (packetHash) {
-            bufferReport(`✅ Xion -> Holesky | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | Packet: \`${packetHash.substring(0, 10)}...\``);
-        } else {
-            bufferReport(`✅ Xion -> Holesky | Xion Tx: \`${xionTxHash.substring(0, 6)}...\` | ⚠ Union Packet N/A`);
-        }
-    } catch (err) {
-        logger.error(`[Xion] Transaction failed: ${err.message}`);
-        bufferReport(`❌ Failed Xion -> Holesky: ${err.message.substring(0,100)}...`);
-    }
-}
-
-// ------- 5.2 BABYLON -> XION -------
 async function sendBabylonToXionBridge(
-    mnemonic,
-    babylonRpcEndpoint,
-    babylonContractAddress,
-    messagePayloadTemplate, // This is the { send: { ... } } object
-    fundsForTx              // This is an array of Coin objects, e.g., [coin("1000", "ubbn")]
+    client, senderBabylonAddress, babylonContractAddress,
+    messagePayloadTemplate, fundsForTx
 ) {
-    const BABYLON_PREFIX = process.env.BABYLON_PREFIX || "bbn";
-    const BABYLON_GAS_PRICE_STR = process.env.BABYLON_GAS_PRICE || "0.01ubbn"; // Adjust if needed
+    const BABYLON_GAS_PRICE_STR = process.env.BABYLON_GAS_PRICE || "0.01ubbn";
     const BABYLON_GAS_LIMIT = parseInt(process.env.BABYLON_GAS_LIMIT || "700000");
 
-    logger.loading(`[Babylon] Preparing wallet with prefix '${BABYLON_PREFIX}'...`);
-    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: BABYLON_PREFIX });
-    const [firstAccount] = await wallet.getAccounts();
-    const senderBabylonAddress = firstAccount.address;
-    logger.info(`[Babylon] Wallet Address: ${senderBabylonAddress}`);
-
-    logger.loading(`[Babylon] Connecting to RPC (${babylonRpcEndpoint})...`);
-    const client = await SigningCosmWasmClient.connectWithSigner(babylonRpcEndpoint, wallet);
-
-    let payload = JSON.parse(JSON.stringify(messagePayloadTemplate)); // Deep clone
+    let payload = JSON.parse(JSON.stringify(messagePayloadTemplate));
     const twentyFourHoursInNs = 24n * 60n * 60n * 1000n * 1_000_000n;
     const currentTimestampNs = BigInt(Date.now()) * 1_000_000n;
-    // Ensure the 'send' object exists
     if (!payload.send) payload.send = {};
     payload.send.timeout_timestamp = (currentTimestampNs + twentyFourHoursInNs).toString();
     payload.send.salt = '0x' + crypto.randomBytes(32).toString('hex');
-    // timeout_height should already be in messagePayloadTemplate from the runner function
 
     const fee = calculateFee(BABYLON_GAS_LIMIT, GasPrice.fromString(BABYLON_GAS_PRICE_STR));
 
-    logger.loading(`[Babylon] Sending message to contract ${babylonContractAddress}...`);
+    logger.loading(`[Babylon] Sending ${fundsForTx[0].amount}${fundsForTx[0].denom} to contract ${babylonContractAddress}...`);
     try {
         const result = await client.execute(
-            senderBabylonAddress,
-            babylonContractAddress,
-            payload, // This is the 'msg' object for the contract
-            fee,
-            "Babylon to Xion Bridge via JS Partner",
-            fundsForTx
+            senderBabylonAddress, babylonContractAddress, payload, fee,
+            "Babylon to Xion Bridge via JS Partner", fundsForTx
         );
         const babylonTxHash = result.transactionHash;
         logger.success(`[Babylon] Transaction sent! Hash: ${babylonTxHash}`);
-        logger.info(`[Babylon->Union] Attempting to poll Union for packet hash using Babylon Tx Hash: ${babylonTxHash}`);
+        logger.info(`[Babylon->Union] Attempting to poll Union for packet hash...`);
         const packetHash = await pollUnionForPacketHash(babylonTxHash, "Babylon");
         if (packetHash) {
-            bufferReport(`✅ Babylon -> Xion | Babylon Tx: \`${babylonTxHash.substring(0, 6)}...\` | Packet: \`${packetHash.substring(0, 10)}...\``);
+            bufferReport(`✅ Babylon -> Xion (${fundsForTx[0].amount} ${fundsForTx[0].denom}) | Babylon Tx: \`${babylonTxHash.substring(0, 6)}...\` | Packet: \`${packetHash.substring(0, 10)}...\``);
         } else {
-            bufferReport(`✅ Babylon -> Xion | Babylon Tx: \`${babylonTxHash.substring(0, 6)}...\` | ⚠ Union Packet N/A`);
+            bufferReport(`✅ Babylon -> Xion (${fundsForTx[0].amount} ${fundsForTx[0].denom}) | Babylon Tx: \`${babylonTxHash.substring(0, 6)}...\` | ⚠ Union Packet N/A`);
         }
     } catch (err) {
         logger.error(`[Babylon] Transaction failed: ${err.message}`);
@@ -237,79 +136,65 @@ async function sendBabylonToXionBridge(
 }
 
 // --------------------------------------------------------------------------
-// 6. RUNNER FUNCTIONS
+// 6. RUNNER FUNCTION
 // --------------------------------------------------------------------------
-
-async function runXionToHoleskyTransfer() {
-    logger.info("Starting Xion -> Holesky Transfer Process...");
+async function runBabylonToXionTransfer() {
+    logger.info("===== Starting Babylon -> Xion Transfer Process =====");
     const mnemonic = process.env.XION_MNEMONIC;
     if (!mnemonic) {
         logger.error("XION_MNEMONIC tidak ditemukan di .env!");
-        bufferReport("❌ XION_MNEMONIC tidak ada di .env!");
-        return;
-    }
-
-    const xionRpc = process.env.XION_RPC_ENDPOINT || "https://rpc.xion-testnet-2.burnt.com"; // From your initial script
-    const xionBridgeContract = process.env.XION_BRIDGE_CONTRACT || "xion1336jj8ertl8h7rdvnz4dh5rqahd09cy0x43guhsxx6xyrztx292qlzhdk9"; // From your initial script
-    
-    // Default instruction string for Xion
-    const xionInstructionDefault = "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000003c000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002e0000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000001e000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000022000000000000000000000000000000000000000000000000000000000000002600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002a000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000002b78696f6e316d3377636b68387576757374393663366b706a38307a726e6b776a33386d396376666a6c737000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000144375d555ede2a6f1892104a5a953fa9c2ea18bf800000000000000000000000000000000000000000000000000000000000000000000000000000000000000057578696f6e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000458494f4e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000478696f6e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001407D878ab885453DcB2baa987E6761C86b5f45F27000000000000000000000000";
-    
-    const xionMessageTemplate = {
-        "send": {
-            "channel_id": parseInt(process.env.XION_CHANNEL_ID || "1"),
-            "timeout_height": "0", // Crucial for Xion contract, as per original structure
-            "instruction": process.env.XION_INSTRUCTION || xionInstructionDefault
-            // timeout_timestamp and salt are added dynamically in sendToXionBridge
-        }
-    };
-    const xionFunds = [coin(process.env.XION_TX_AMOUNT || "10000", process.env.XION_TX_DENOM || "uxion")];
-
-    await sendToXionBridge(mnemonic, xionRpc, xionBridgeContract, xionMessageTemplate, xionFunds);
-}
-
-async function runBabylonToXionTransfer() {
-    logger.info("Starting Babylon -> Xion Transfer Process...");
-    const mnemonic = process.env.XION_MNEMONIC; // Assuming same mnemonic
-    if (!mnemonic) {
-        logger.error("XION_MNEMONIC (untuk Babylon) tidak ditemukan di .env!");
         bufferReport("❌ MNEMONIC (untuk Babylon) tidak ada di .env!");
-        return; // Stop if no mnemonic
+        return;
     }
 
     const babylonRpc = process.env.BABYLON_RPC_ENDPOINT;
     if (!babylonRpc) {
         logger.error("BABYLON_RPC_ENDPOINT tidak ditemukan di .env! Anda perlu mengisinya.");
         bufferReport("❌ BABYLON_RPC_ENDPOINT tidak ada di .env!");
-        return; // Stop if Babylon RPC is not set
-    }
-    
-    // Default values from your provided JSON
-    const babylonContract = process.env.BABYLON_CONTRACT_ADDRESS || "bbn1336jj8ertl8h7rdvnz4dh5rqahd09cy0x43guhsxx6xyrztx292q77945h";
-    const babylonChannelId = process.env.BABYLON_CHANNEL_ID || "4";
-    // Default instruction string for Babylon from your JSON
-    const babylonInstructionDefault = "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000320000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002c000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000002a62626e316d3377636b68387576757374393663366b706a38307a726e6b776a33386d396365376576656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002b78696f6e316d3377636b68387576757374393663366b706a38307a726e6b776a33386d396376666a6c737000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000047562626e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000047562626e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000047562626e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003f78696f6e316a30687036717a7467617a6137743079386476633232656176767671796473336b7a653538646c716b756c79733872326b633873396d7030736d00";
-    
-    const babylonTxAmount = process.env.BABYLON_TX_AMOUNT || "1000"; // From your JSON
-    const babylonTxDenom = process.env.BABYLON_TX_DENOM || "ubbn";   // From your JSON
-
-    // ** INI BAGIAN PENTING YANG DIPERBAIKI **
-    const babylonMessageTemplate = {
-        "send": {
-            "channel_id": parseInt(babylonChannelId),
-            "timeout_height": "0", // <====== DIPASTIKAN ADA DI SINI
-            "instruction": process.env.BABYLON_INSTRUCTION || babylonInstructionDefault
-            // timeout_timestamp dan salt akan diisi secara dinamis di sendBabylonToXionBridge
-        }
-    };
-    const babylonFunds = [coin(babylonTxAmount, babylonTxDenom)];
-
-    if (!babylonInstructionDefault || babylonInstructionDefault.length < 100) { // Simple validation
-        logger.error("BABYLON_INSTRUCTION (default) tidak valid atau terlalu pendek!");
         return;
     }
 
-    await sendBabylonToXionBridge(mnemonic, babylonRpc, babylonContract, babylonMessageTemplate, babylonFunds);
+    const babylonContract = process.env.BABYLON_CONTRACT_ADDRESS || "bbn1336jj8ertl8h7rdvnz4dh5rqahd09cy0x43guhsxx6xyrztx292q77945h";
+    const minAmount = parseInt(process.env.BABYLON_TX_AMOUNT_MIN || "1000");
+    const maxAmount = parseInt(process.env.BABYLON_TX_AMOUNT_MAX || "2000");
+    const txDenom = process.env.BABYLON_TX_DENOM || "ubbn";
+    const BABYLON_PREFIX = process.env.BABYLON_PREFIX || "bbn";
+
+    try {
+        logger.loading(`[Babylon] Preparing wallet with prefix '${BABYLON_PREFIX}'...`);
+        const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: BABYLON_PREFIX });
+        const [firstAccount] = await wallet.getAccounts();
+        const senderBabylonAddress = firstAccount.address;
+        logger.info(`[Babylon] Wallet Address: ${senderBabylonAddress}`);
+
+        logger.loading(`[Babylon] Connecting to RPC (${babylonRpc}) to check balance...`);
+        const client = await SigningCosmWasmClient.connectWithSigner(babylonRpc, wallet);
+        const balance = await client.getBalance(senderBabylonAddress, txDenom);
+        logger.info(`[Babylon] Current balance: ${balance.amount} ${balance.denom}`);
+
+        const amountToSend = getRandomAmount(minAmount, maxAmount);
+        if (BigInt(balance.amount) < BigInt(amountToSend)) {
+            logger.error(`[Babylon] Insufficient funds. Needed: ${amountToSend}, Have: ${balance.amount}`);
+            bufferReport(`❌ Babylon -> Xion: Saldo tidak cukup (Butuh: ${amountToSend}, Punya: ${balance.amount})`);
+            return;
+        }
+
+        const babylonFunds = [coin(amountToSend.toString(), txDenom)];
+        const babylonInstructionDefault = "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000320000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002c000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000002a62626e316d3377636b68387576757374393663366b706a38307a726e6b776a33386d396365376576656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002b78696f6e316d3377636b68387576757374393663366b706a38307a726e6b776a33386d396376666a6c737000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000047562626e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000047562626e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000047562626e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003f78696f6e316a30687036717a7467617a61377430793864766332326561767671796473336b7a653538646c716b756c79733872326b633873396d7030736d00";
+        const babylonMessageTemplate = {
+            "send": {
+                "channel_id": parseInt(process.env.BABYLON_CHANNEL_ID || "4"),
+                "timeout_height": "0",
+                "instruction": process.env.BABYLON_INSTRUCTION || babylonInstructionDefault
+            }
+        };
+
+        await sendBabylonToXionBridge(client, senderBabylonAddress, babylonContract, babylonMessageTemplate, babylonFunds);
+
+    } catch (err) {
+        logger.error(`[Babylon Runner] A critical error occurred: ${err.message}`);
+        bufferReport(`🚨 Babylon Runner CRASHED: ${err.message.substring(0, 100)}...`);
+    }
 }
 
 
@@ -317,37 +202,9 @@ async function runBabylonToXionTransfer() {
 // 7. MAIN EXECUTION LOGIC
 // --------------------------------------------------------------------------
 async function main() {
-    const args = process.argv.slice(2);
-    const transferType = args[0];
-
-    if (transferType === 'xion') {
-        logger.info("===== RUNNING XION -> HOLESKY TRANSFER (via CLI argument) =====");
-        await runXionToHoleskyTransfer();
-    } else if (transferType === 'babylon') {
-        logger.info("===== RUNNING BABYLON -> XION TRANSFER (via CLI argument) =====");
-        await runBabylonToXionTransfer();
-    } else if (!transferType) {
-        logger.info("===== No CLI argument. RUNNING ALL TRANSFERS SEQUENTIALLY (Xion then Babylon) by default. =====");
-        
-        logger.info("--- Starting Xion -> Holesky Transfer ---");
-        await runXionToHoleskyTransfer();
-        logger.info("--- Xion -> Holesky Transfer Attempt Finished ---");
-        
-        logger.info("Waiting for 5 seconds before starting next transfer type...");
-        await delay(5000); 
-        
-        logger.info("--- Starting Babylon -> Xion Transfer ---");
-        await runBabylonToXionTransfer();
-        logger.info("--- Babylon -> Xion Transfer Attempt Finished ---");
-
-    } else {
-        logger.warn("--------------------------------------------------------------------------------");
-        logger.warn(`Invalid transfer type specified: '${transferType}'.`);
-        logger.warn("Use: node bridge_script.js xion");
-        logger.warn("OR   node bridge_script.js babylon");
-        logger.warn("OR   leave blank (no arguments) to run both Xion->Holesky and then Babylon->Xion transfers sequentially.");
-        logger.warn("--------------------------------------------------------------------------------");
-    }
+    // Skrip sekarang hanya menjalankan satu fungsi, jadi kita panggil langsung.
+    // Ini akan berjalan dengan 'node bridge_script.js'
+    await runBabylonToXionTransfer();
 
     await flushReport();
     logger.info("===== SCRIPT EXECUTION FINISHED =====");
